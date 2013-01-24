@@ -17,7 +17,7 @@ module Geokit
         #        res = Net::HTTP.get_response(URI.parse("http://maps.google.com/maps/geo?ll=#{Geokit::Inflector::url_escape(address_str)}&output=xml&key=#{Geokit::Geocoders::google}&oe=utf-8"))
         return GeoLoc.new unless (res.is_a?(Net::HTTPSuccess) || res.is_a?(Net::HTTPOK))
         xml = self.transcode_to_utf8(res.body)
-        logger.debug "Google reverse-geocoding. LL: #{latlng}. Result: #{xml}"
+        #logger.debug "Google reverse-geocoding. LL: #{latlng}. Result: #{xml}"
         return self.xml2GeoLoc(xml)
       end
 
@@ -52,7 +52,7 @@ module Geokit
         res = self.call_geocoder_service("http://maps.google.com/maps/geo?q=#{Geokit::Inflector::url_escape(address_str)}&output=xml#{bias_str}&key=#{Geokit::Geocoders::google}&oe=utf-8")
         return GeoLoc.new if !res.is_a?(Net::HTTPSuccess)
         xml = self.transcode_to_utf8(res.body)
-        logger.debug "Google geocoding. Address: #{address}. Result: #{xml}"
+        #logger.debug "Google geocoding. Address: #{address}. Result: #{xml}"
         return self.xml2GeoLoc(xml, address)
       end
 
@@ -88,7 +88,7 @@ module Geokit
         elsif doc.elements['//kml/Response/Status/code'].text == '620'
           raise Geokit::TooManyQueriesError
         else
-          logger.info "Google was unable to geocode address: "+address
+          #logger.info "Google was unable to geocode address: "+address
           return GeoLoc.new
         end
 
@@ -96,7 +96,7 @@ module Geokit
         # re-raise because of other rescue
         raise Geokit::TooManyQueriesError, "Google returned a 620 status, too many queries. The given key has gone over the requests limit in the 24 hour period or has submitted too many requests in too short a period of time. If you're sending multiple requests in parallel or in a tight loop, use a timer or pause in your code to make sure you don't send the requests too quickly."
       rescue
-        logger.error "Caught an error during Google geocoding call: "+$!
+        #logger.error "Caught an error during Google geocoding call: "+$!
         return GeoLoc.new
       end
 
