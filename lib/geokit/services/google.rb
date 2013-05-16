@@ -49,11 +49,13 @@ module Geokit
       def self.do_geocode(address, options = {})
         bias_str = options[:bias] ? construct_bias_string_from_options(options[:bias]) : ''
         address_str = address.is_a?(GeoLoc) ? address.to_geocodeable_s : address
-        res = self.call_geocoder_service("http://maps.google.com/maps/geo?q=#{Geokit::Inflector::url_escape(address_str)}&output=xml#{bias_str}&key=#{Geokit::Geocoders::google}&oe=utf-8")
+        #res = self.call_geocoder_service("http://maps.google.com/maps/geo?q=#{Geokit::Inflector::url_escape(address_str)}&output=xml#{bias_str}&key=#{Geokit::Geocoders::google}&oe=utf-8")
+        res = self.call_geocoder_service(GoogleMaps.url_with_signature("/maps/api/geocode/json?address=#{Geokit::Inflector::url_escape(address_str)}#{bias_str}&client=gme-limoscominc&sensor=false"))
         return GeoLoc.new if !res.is_a?(Net::HTTPSuccess)
-        xml = self.transcode_to_utf8(res.body)
+        #xml = self.transcode_to_utf8(res.body)
         #logger.debug "Google geocoding. Address: #{address}. Result: #{xml}"
-        return self.xml2GeoLoc(xml, address)
+        #return self.xml2GeoLoc(xml, address)
+        return self.json2GeoLoc(res.body, address)
       end
 
       def self.construct_bias_string_from_options(bias)
@@ -64,6 +66,98 @@ module Geokit
           # viewport biasing
           "&ll=#{bias.center.ll}&spn=#{bias.to_span.ll}"
         end
+      end
+
+      def self.json2GeoLoc(json, address="")
+        j = JSON.parse(json)
+        status = j['status']
+
+        case status
+          when 'OK':
+            geoloc = nil
+            j['results'].each do |e|
+              extracted_geoloc = extract_json_placemark(e)
+              if geoloc.nil?
+                geoloc = extracted_geoloc
+              else
+                geoloc.all.push(extracted_geoloc)
+              end
+            end
+            return geoloc
+          when 'OVER_QUERY_LIMIT':
+            raise Geokit::TooManyQueriesError
+          when 'ZERO_RESULTS':
+            logger.info "[geocoders#json2GeoLoc] Google was unable to geocode address: "+address
+            return GeoLoc.new
+          else
+            logger.info "[geocoders#json2GeoLoc] Google returned '#{status}' for geocoding address: "+address
+            return GeoLoc.new
+        end
+      rescue Geokit::TooManyQueriesError
+        # re-raise because of other rescue
+        raise Geokit::TooManyQueriesError, "Google returned a 620 status, too many queries. The given key has gone over the requests limit in the 24 hour period or has submitted too many requests in too short a period of time. If you're sending multiple requests in parallel or in a tight loop, use a timer or pause in your code to make sure you don't send the requests too quickly."
+      rescue => e
+        logger.error "[geocoders#json2GeoLoc] Caught an error during Google geocoding call: "+$!
+        return GeoLoc.new
+      end
+
+      def self.extract_json_placemark(json)
+        # puts "json: #{json.inspect}"
+        res = GeoLoc.new
+        coordinates=[json['geometry']['location']['lat'], json['geometry']['location']['lng']]
+        address_components=json['address_components']
+
+        #basics
+        res.lat=coordinates[0]
+        res.lng=coordinates[1]
+        country_code=get_addr_component_type(address_components, 'country')
+        res.country_code=country_code if country_code
+        res.precision=json['geometry']['location_type']
+        res.provider='google'
+
+        city=get_addr_component_type(address_components, 'locality')
+        res.city = city if city
+        state=get_addr_component_type(address_components, 'administrative_area_level_1')
+        res.state = state if state
+        # res.province =
+        res.full_address = json['formatted_address']
+        zip=get_addr_component_type(address_components, 'postal_code')
+        res.zip = zip if zip
+        if res.precision=='ROOFTOP'
+          street_number=get_addr_component_type(address_components, 'street_number')
+          street=get_addr_component_type(address_components, 'route')
+          res.street_address = "#{street_number} #{street}"
+        end
+        country=get_addr_component_type(address_components, 'country', true)
+        res.country = country if country
+        # res.district =
+        # res.accuracy =
+
+        # google returns a set of suggested boundaries for the geocoded result
+        if suggested_bounds = json['geometry']['bounds']
+          res.suggested_bounds = Bounds.normalize(
+              [suggested_bounds['southwest']['lat'], suggested_bounds['southwest']['lng']],
+              [suggested_bounds['northeast']['lat'], suggested_bounds['northeast']['lng']])
+        end
+
+        res.success=true
+
+        return res
+      end
+
+      # Loops through the address components of a JSON response looking for the requested type.
+      # Returns the short form of the address component unless requested otherwise.
+      # See  http://code.google.com/apis/maps/documentation/geocoding
+      def self.get_addr_component_type(addr_components, type, is_short=true)
+        addr_components.each do |ac|
+          ac['types'].each do |t|
+            if t==type
+              return is_short ? ac['short_name'] : ac['long_name']
+            end
+          end
+        end
+
+        return nil
       end
 
       def self.xml2GeoLoc(xml, address="")
