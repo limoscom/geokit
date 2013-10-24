@@ -73,7 +73,7 @@ module Geokit
         status = j['status']
 
         case status
-          when 'OK':
+          when 'OK'
             geoloc = nil
             j['results'].each do |e|
               extracted_geoloc = extract_json_placemark(e)
@@ -84,9 +84,9 @@ module Geokit
               end
             end
             return geoloc
-          when 'OVER_QUERY_LIMIT':
+          when 'OVER_QUERY_LIMIT'
             raise Geokit::TooManyQueriesError
-          when 'ZERO_RESULTS':
+          when 'ZERO_RESULTS'
             logger.info "[geocoders#json2GeoLoc] Google was unable to geocode address: "+address
             return GeoLoc.new
           else
